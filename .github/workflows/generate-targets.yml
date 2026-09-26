@@ -83,3 +83,5 @@ jobs:
             git commit -m "Generate live KA Gaming targets"
             git push
           fi
+
+# trigger live validation

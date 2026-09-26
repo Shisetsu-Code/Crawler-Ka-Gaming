@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
-import requests
+from curl_cffi import requests
 
 
 CATALOG_URL = "https://rmpdemo.kaga88.com/kaga/publicGameList"
-CATALOG_PAGE = "https://www.kaga88.com/#games"
+CATALOG_PAGE = "https://www.kaga88.com/"
 DEFAULT_OUTPUT = Path("data") / "providers" / "ka_gaming"
 PARTNER_NAME = "demo"
 ACCESS_KEY = "accessKey"
@@ -25,20 +25,17 @@ def _safe_folder(value: str) -> str:
 
 
 def _new_session() -> requests.Session:
-    session = requests.Session()
-    session.headers.update(
-        {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136 Safari/537.36"
-            ),
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Referer": CATALOG_PAGE,
+    # KA está detrás de Cloudflare y rechaza clientes HTTP con fingerprint
+    # genérico (requests/urllib), aunque el endpoint sea público. curl_cffi
+    # reproduce el fingerprint TLS/HTTP2 de un navegador real.
+    return requests.Session(
+        impersonate="chrome",
+        headers={
+            "Accept-Language": "es-ES,es;q=0.9,en-US;q=0.8,en;q=0.7",
             "Cache-Control": "no-cache",
-        }
+            "Pragma": "no-cache",
+        },
     )
-    return session
 
 
 def _fetch_catalog(
@@ -50,6 +47,15 @@ def _fetch_catalog(
     response = session.get(
         CATALOG_URL,
         params={"lang": language},
+        headers={
+            # Headers observados en la llamada XHR válida del sitio.
+            "Accept": "*/*",
+            "Origin": "https://www.kaga88.com",
+            "Referer": CATALOG_PAGE,
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-site",
+        },
         timeout=timeout,
     )
     response.raise_for_status()
@@ -152,7 +158,7 @@ def _download_thumbnail(
 def crawl(
     output: Path,
     *,
-    language: str = "en",
+    language: str = "es",
     timeout: float = 30.0,
 ) -> list[dict[str, str]]:
     output = output.resolve()
@@ -242,8 +248,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--lang",
-        default="en",
-        help="Idioma del catálogo y de las demos (default: en)",
+        default="es",
+        help="Idioma del catálogo y de las demos (default: es)",
     )
     parser.add_argument(
         "--timeout",

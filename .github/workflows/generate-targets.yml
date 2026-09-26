@@ -1,0 +1,80 @@
+name: Generate KA Gaming targets
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/generate-targets.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Generate targets.txt
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from crawl_ka_gaming import _new_session, _fetch_catalog, _launch_url
+
+          language = "es"
+          session = _new_session()
+          try:
+              payload = _fetch_catalog(session, language=language, timeout=30.0)
+          finally:
+              session.close()
+
+          launch_base = str(payload["gameLaunchURL"]).strip()
+          targets = []
+          seen = set()
+
+          for raw in payload["games"]:
+              if not isinstance(raw, dict):
+                  continue
+              game_id = str(raw.get("gameId") or "").strip()
+              if not game_id:
+                  continue
+              if game_id in seen:
+                  raise RuntimeError(f"gameId duplicado: {game_id}")
+              seen.add(game_id)
+              targets.append(
+                  (game_id.casefold(), _launch_url(launch_base, game_id, language=language))
+              )
+
+          targets.sort(key=lambda row: row[0])
+          urls = [url for _, url in targets]
+          Path("targets.txt").write_text(
+              "\n".join(urls) + ("\n" if urls else ""),
+              encoding="utf-8",
+          )
+
+          print(f"Generated {len(urls)} targets")
+          if len(urls) < 1000:
+              raise RuntimeError(f"Catálogo inesperadamente pequeño: {len(urls)}")
+          PY
+
+      - name: Show result
+        run: |
+          wc -l targets.txt
+          head -n 3 targets.txt
+          tail -n 3 targets.txt
+
+      - name: Upload targets
+        uses: actions/upload-artifact@v4
+        with:
+          name: ka-gaming-targets
+          path: targets.txt
+          if-no-files-found: error
+          retention-days: 7
